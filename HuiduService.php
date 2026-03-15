@@ -58,17 +58,18 @@ class HuiduService {
         return $this->sendRequest('/game/list', ['code' => $providerCode]);
     }
 
-    public function launchGame($username, $gameUid, $amount) {
+    public function launchGame($username, $gameUid, $amount, $currency = 'USD') {
+        // প্রিফিক্স অ্যাড করা হচ্ছে
         $username = str_starts_with($username, API_PLAYER_PREFIX) ? $username : API_PLAYER_PREFIX . $username;
 
         $payload = [
             'member_account' => $username,
             'game_uid' => $gameUid,
             'credit_amount' => (string)$amount,
-            'currency_code' => API_CURRENCY,
+            'currency_code' => $currency,
             'language' => API_LANG,
             'home_url' => BASE_URL . '/index.php',
-            'platform' => 0, // 0 = HTML5 (Mobile & PC Both support). এটি Game Not Found ফিক্স করতে সাহায্য করবে।
+            'platform' => 2, // <--- এখানেই মূল ফিক্স! 2 মানে HTML5 (Mobile & PC Both)
             'callback_url' => BASE_URL . '/callback.php'
         ];
 
