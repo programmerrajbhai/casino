@@ -2,62 +2,75 @@
 require_once 'db.php';
 require_once 'config.php';
 
-// ১. API সার্ভার থেকে রিকোয়েস্ট রিসিভ করা
+// গেম সার্ভারের রিকোয়েস্টের সময় কোনো HTML এরর যেন না যায় তাই সব এরর অফ করা হলো
+error_reporting(0);
+ini_set('display_errors', 0);
+
+function writeLog($msg) {
+    file_put_contents('callback_log.txt', "[" . date('Y-m-d H:i:s') . "] " . $msg . "\n", FILE_APPEND);
+}
+
+writeLog("--- Callback Hit ---");
+
 $input = file_get_contents("php://input");
 $request = json_decode($input, true);
 
 if (!isset($request['payload'])) {
-    echo json_encode(['code' => 1, 'msg' => 'Missing payload']);
-    exit;
+    writeLog("Failed: No Payload");
+    die(json_encode(['code' => 1, 'msg' => 'no payload']));
 }
 
-// ২. রিকোয়েস্ট ডিক্রিপ্ট করা
-$decryptedJson = openssl_decrypt($request['payload'], 'AES-256-ECB', API_AES_KEY, 0);
-$data = json_decode(trim($decryptedJson), true);
+// 100% Official Decryption
+$decrypted = openssl_decrypt(base64_decode($request['payload']), 'AES-256-ECB', API_AES_KEY, OPENSSL_RAW_DATA);
+$data = json_decode($decrypted, true);
+
+writeLog("Decrypted Data: " . print_r($data, true));
 
 if (!$data || !isset($data['member_account'])) {
-    echo json_encode(['code' => 1, 'msg' => 'Invalid data format']);
-    exit;
+    die(json_encode(['code' => 1, 'msg' => 'invalid data']));
 }
 
-// ৩. ইউজারনেম এবং বেট/উইন অ্যামাউন্ট বের করা
 $username = str_replace(API_PLAYER_PREFIX, '', $data['member_account']);
 $betAmount = isset($data['bet_amount']) ? (float)$data['bet_amount'] : 0.00;
 $winAmount = isset($data['win_amount']) ? (float)$data['win_amount'] : 0.00;
 
-// ৪. ডাটাবেস থেকে ইউজারের বর্তমান ব্যালেন্স চেক করা
 $stmt = $pdo->prepare("SELECT balance FROM users WHERE username = ?");
 $stmt->execute([$username]);
 $user = $stmt->fetch();
 
 if (!$user) {
-    echo json_encode(['code' => 1, 'msg' => 'User not found']);
-    exit;
+    writeLog("Failed: User Not Found");
+    die(json_encode(['code' => 1, 'msg' => 'user not found']));
 }
 
 $currentBalance = (float)$user['balance'];
-
-// ৫. ব্যালেন্স হিসাব করা (বর্তমান ব্যালেন্স - বেট অ্যামাউন্ট + জেতা অ্যামাউন্ট)
 $newBalance = $currentBalance - $betAmount + $winAmount;
 
-// ৬. নতুন ব্যালেন্স ডাটাবেসে আপডেট করা
-$updateStmt = $pdo->prepare("UPDATE users SET balance = ? WHERE username = ?");
-$updateStmt->execute([$newBalance, $username]);
+if ($newBalance < 0) {
+    $newBalance = 0;
+}
 
-// ৭. API সার্ভারকে নতুন ব্যালেন্স জানিয়ে দেওয়া
-$responsePayload = [
-    'credit_amount' => (string)$newBalance,
+// Update Database
+$pdo->prepare("UPDATE users SET balance = ? WHERE username = ?")->execute([$newBalance, $username]);
+writeLog("Success - Old Bal: {$currentBalance} | Bet: {$betAmount} | Win: {$winAmount} | New Bal: {$newBalance}");
+
+// Prepare Response
+$respPayload = [
+    'credit_amount' => (string)number_format($newBalance, 2, '.', ''),
     'timestamp' => (string)(time() * 1000)
 ];
 
-$jsonResponse = json_encode($responsePayload);
-$encryptedResponse = openssl_encrypt($jsonResponse, 'AES-256-ECB', API_AES_KEY, 0);
+// 100% Official Encryption
+$jsonResp = json_encode($respPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$encryptedResp = base64_encode(openssl_encrypt($jsonResp, 'AES-256-ECB', API_AES_KEY, OPENSSL_RAW_DATA));
 
-header('Content-Type: application/json');
-echo json_encode([
+$finalOut = json_encode([
     'code' => 0,
     'msg' => 'success',
-    'payload' => $encryptedResponse
+    'payload' => $encryptedResp
 ]);
+
+header('Content-Type: application/json');
+echo $finalOut;
 exit;
 ?>

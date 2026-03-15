@@ -2,13 +2,14 @@
 require_once 'config.php';
 
 class HuiduService {
+    // 100% Official API documentation Crypto logic
     private function encryptPayload($payload) {
-        $json = json_encode($payload);
-        return openssl_encrypt($json, 'AES-256-ECB', API_AES_KEY, OPENSSL_RAW_DATA | OPENSSL_ZERO_PADDING) ?: openssl_encrypt($json, 'AES-256-ECB', API_AES_KEY, 0);
+        $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        return base64_encode(openssl_encrypt($json, 'AES-256-ECB', API_AES_KEY, OPENSSL_RAW_DATA));
     }
 
     private function decryptPayload($encrypted) {
-        $decrypted = openssl_decrypt($encrypted, 'AES-256-ECB', API_AES_KEY, 0);
+        $decrypted = openssl_decrypt(base64_decode($encrypted), 'AES-256-ECB', API_AES_KEY, OPENSSL_RAW_DATA);
         return json_decode($decrypted, true);
     }
 
@@ -59,7 +60,6 @@ class HuiduService {
     }
 
     public function launchGame($username, $gameUid, $amount, $currency = 'USD') {
-        // প্রিফিক্স অ্যাড করা হচ্ছে
         $username = str_starts_with($username, API_PLAYER_PREFIX) ? $username : API_PLAYER_PREFIX . $username;
 
         $payload = [
@@ -69,7 +69,7 @@ class HuiduService {
             'currency_code' => $currency,
             'language' => API_LANG,
             'home_url' => BASE_URL . '/index.php',
-            'platform' => 2, // <--- এখানেই মূল ফিক্স! 2 মানে HTML5 (Mobile & PC Both)
+            'platform' => 2, 
             'callback_url' => BASE_URL . '/callback.php'
         ];
 
