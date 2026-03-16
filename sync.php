@@ -3,8 +3,8 @@
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
-set_time_limit(0); // টাইমআউট বন্ধ করে দেওয়া হলো
-ob_implicit_flush(1); // রিয়েল-টাইম আউটপুট দেখানোর জন্য
+set_time_limit(0); // টাইমআউট বন্ধ করে দেওয়া হলো
+ob_implicit_flush(1); // রিয়েল-টাইম আউটপুট দেখানোর জন্য
 
 require_once 'db.php';
 require_once 'HuiduService.php';
@@ -60,32 +60,32 @@ foreach ($providers as $p) {
             $gType = $g['game_type'] ?? $g['gameType'] ?? 'Slot';
             $curr = $g['currency'] ?? 'BDT';
             $lang = $g['lang'] ?? 'en';
+            
+            // API থেকে ইমেজ লিংক ধরার কোড
+            $image = $g['image'] ?? $g['logo'] ?? $g['icon'] ?? $g['picture'] ?? NULL;
 
             try {
-                // provider_id বাদ দিয়েছি কারণ আপনার ডাটাবেস স্ক্রিনশটে এটি সমস্যা করতে পারে। provider_code দিয়েই কাজ হবে।
+                // image কলামসহ ডাটাবেসে সেভ করার আপডেট করা লজিক
                 $stmt = $pdo->prepare("
-                    INSERT INTO huidu_games (game_uid, game_name, provider_code, provider_name, game_type, currency, lang) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?) 
-                    ON DUPLICATE KEY UPDATE game_name = ?, game_type = ?
+                    INSERT INTO huidu_games (game_uid, game_name, provider_code, provider_name, game_type, currency, lang, image) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
+                    ON DUPLICATE KEY UPDATE game_name = ?, game_type = ?, image = ?
                 ");
-                $stmt->execute([$uid, $gName, $code, $p['name'], $gType, $curr, $lang, $gName, $gType]);
+                $stmt->execute([$uid, $gName, $code, $p['name'], $gType, $curr, $lang, $image, $gName, $gType, $image]);
                 $providerGameCount++;
                 $totalGames++;
             } catch (PDOException $e) {
-                // যদি ডাটাবেসের কলামে কোনো ভুল থাকে, তাহলে এখানে এরর দেখাবে
                 echo "<br><span style='color:red;'>❌ DB Error on game {$gName}: {$e->getMessage()}</span>";
-                break; // একটি গেম এরর দিলে লুপ ব্রেক করবে যাতে আপনি এরর পড়তে পারেন
+                break; 
             }
         }
         echo "<span style='color:yellow;'> Added/Updated {$providerGameCount} games.</span><br>";
         
-        // API ব্লক না করার জন্য ছোট একটি বিরতি
         usleep(100000); 
     } else {
         echo "<span style='color:red;'> Failed! (Msg: " . ($gamesRes['msg'] ?? 'Unknown') . ")</span><br>";
     }
     
-    // ব্রাউজারে রিয়েল-টাইম ডেটা পুশ করা
     flush(); 
 }
 
