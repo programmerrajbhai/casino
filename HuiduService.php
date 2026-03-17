@@ -2,6 +2,7 @@
 require_once 'config.php';
 
 class HuiduService {
+    
     // 100% Official API documentation Crypto logic
     private function encryptPayload($payload) {
         $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -19,6 +20,8 @@ class HuiduService {
 
         if ($isPost) {
             $timestamp = (string)(time() * 1000);
+            
+            // 🔥 FIX: Huidu API রিকোয়ারমেন্ট অনুযায়ী এনক্রিপ্ট করার আগে পেলোডের ভেতরে agency_uid ঢোকাতে হবে
             $data['agency_uid'] = API_AGENCY_UID;
             $data['timestamp'] = $timestamp;
 
@@ -57,6 +60,24 @@ class HuiduService {
 
     public function fetchGames($providerCode) {
         return $this->sendRequest('/game/list', ['code' => $providerCode]);
+    }
+
+    public function registerPlayer($username) {
+        $username = str_starts_with($username, API_PLAYER_PREFIX) ? $username : API_PLAYER_PREFIX . $username;
+
+        $payload = [
+            'member_account' => $username,
+            'member_name' => $username 
+        ];
+
+        $response = $this->sendRequest('/player/create', $payload, true);
+
+        // Code 0 বা 8011 (আগে থেকেই আছে) দুটোই সাকসেস
+        if (isset($response['code']) && ($response['code'] === 0 || $response['code'] === 8011)) {
+            return true;
+        }
+        
+        return false;
     }
 
     public function launchGame($username, $gameUid, $amount, $currency = 'USD') {

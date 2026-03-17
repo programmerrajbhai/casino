@@ -1,95 +1,72 @@
 <?php
-// PHP Error Show & Timeout Fix
+// error_reporting(E_ALL); // টেস্ট করার সময় অন রাখতে পারেন
 ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
-set_time_limit(0); // টাইমআউট বন্ধ করে দেওয়া হলো
-ob_implicit_flush(1); // রিয়েল-টাইম আউটপুট দেখানোর জন্য
+set_time_limit(0);
+ob_implicit_flush(1);
 
 require_once 'db.php';
 require_once 'HuiduService.php';
 
 $api = new HuiduService();
 
-echo "<div style='font-family:sans-serif; background:#111; color:#0f0; padding:20px; min-height:100vh;'>";
-echo "<h2>🚀 Starting API Sync... Please wait!</h2><hr>";
+echo "<div style='font-family:sans-serif; background:#000; color:#0f0; padding:20px; min-height:100vh;'>";
+echo "<h2>🚀 Deep Syncing Started...</h2><hr>";
 
-// 1. Sync Providers
-echo "<b>[1] Fetching Providers...</b><br>";
+// ১. প্রোভাইডার সিঙ্ক
 $provRes = $api->fetchProviders();
-
-if (!isset($provRes['code']) || $provRes['code'] !== 0) {
-    die("<b style='color:red;'>❌ Failed to fetch providers! API Response: " . json_encode($provRes) . "</b></div>");
-}
-
-$providers = $provRes['data'] ?? [];
-$providerMap = [];
-
-foreach ($providers as $p) {
-    $code = $p['code'];
-    $name = $p['name'] ?? $code;
-    
-    try {
+if (isset($provRes['code']) && $provRes['code'] === 0) {
+    foreach ($provRes['data'] as $p) {
         $stmt = $pdo->prepare("INSERT INTO huidu_providers (provider_code, provider_name) VALUES (?, ?) ON DUPLICATE KEY UPDATE provider_name = ?");
-        $stmt->execute([$code, $name, $name]);
-    } catch (PDOException $e) {
-        echo "<span style='color:red;'>Provider DB Error ({$code}): {$e->getMessage()}</span><br>";
+        $stmt->execute([$p['code'], $p['name'], $p['name']]);
     }
+    echo "✅ Providers updated.<br>";
 }
-echo "<p style='color:#0ea5e9;'>✅ Providers synced perfectly. Total: " . count($providers) . "</p><hr>";
 
-// 2. Sync Games
-echo "<b>[2] Fetching Games (This may take a few minutes)...</b><br><br>";
-$totalGames = 0;
+// ২. গেম সিঙ্ক (ডিপ স্ক্যানার)
+echo "<b>[2] Syncing Games & Preserving Images...</b><br><br>";
+$totalSynced = 0;
+
+$providers = $pdo->query("SELECT provider_code, provider_name FROM huidu_providers")->fetchAll();
 
 foreach ($providers as $p) {
-    $code = $p['code'];
-    echo "🔄 Syncing games for provider: <b>{$p['name']}</b> ({$code})... ";
+    $code = $p['provider_code'];
+    echo "🔄 Provider: {$p['provider_name']}... ";
     
-    $gamesRes = $api->fetchGames($code);
-    
-    if (isset($gamesRes['code']) && $gamesRes['code'] === 0) {
-        $games = $gamesRes['data'] ?? [];
-        $providerGameCount = 0;
-
+    $res = $api->fetchGames($code);
+    if (isset($res['code']) && $res['code'] === 0) {
+        $games = $res['data'] ?? [];
         foreach ($games as $g) {
             $uid = $g['game_uid'] ?? $g['gameId'] ?? null;
             if (!$uid) continue;
 
-            $gName = $g['game_name'] ?? $g['gameName'] ?? 'Unknown';
-            $gType = $g['game_type'] ?? $g['gameType'] ?? 'Slot';
+            $name = $g['game_name'] ?? $g['gameName'] ?? 'Unknown';
+            $type = $g['game_type'] ?? $g['gameType'] ?? 'Slot';
             $curr = $g['currency'] ?? 'BDT';
             $lang = $g['lang'] ?? 'en';
             
-            // API থেকে ইমেজ লিংক ধরার কোড
-            $image = $g['image'] ?? $g['logo'] ?? $g['icon'] ?? $g['picture'] ?? NULL;
+            // এপিআই থেকে ছবি খোঁজা
+            $newImg = $g['image'] ?? $g['imageUrl'] ?? $g['icon'] ?? $g['logo'] ?? NULL;
 
-            try {
-                // image কলামসহ ডাটাবেসে সেভ করার আপডেট করা লজিক
-                $stmt = $pdo->prepare("
-                    INSERT INTO huidu_games (game_uid, game_name, provider_code, provider_name, game_type, currency, lang, image) 
+            // ডাটাবেসে ইনসার্ট বা আপডেট
+            // ছবি যদি এপিআইতে না থাকে (NULL), তবে আগের ছবি যেন ডিলিট না হয় (COALESCE ব্যবহার করা হয়েছে)
+            $sql = "INSERT INTO huidu_games (game_uid, game_name, provider_code, provider_name, game_type, currency, lang, image) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
-                    ON DUPLICATE KEY UPDATE game_name = ?, game_type = ?, image = ?
-                ");
-                $stmt->execute([$uid, $gName, $code, $p['name'], $gType, $curr, $lang, $image, $gName, $gType, $image]);
-                $providerGameCount++;
-                $totalGames++;
-            } catch (PDOException $e) {
-                echo "<br><span style='color:red;'>❌ DB Error on game {$gName}: {$e->getMessage()}</span>";
-                break; 
-            }
+                    ON DUPLICATE KEY UPDATE 
+                    game_name = VALUES(game_name), 
+                    game_type = VALUES(game_type), 
+                    image = IFNULL(VALUES(image), image)";
+            
+            $pdo->prepare($sql)->execute([$uid, $name, $code, $p['provider_name'], $type, $curr, $lang, $newImg]);
+            $totalSynced++;
         }
-        echo "<span style='color:yellow;'> Added/Updated {$providerGameCount} games.</span><br>";
-        
-        usleep(100000); 
+        echo "Done.<br>";
     } else {
-        echo "<span style='color:red;'> Failed! (Msg: " . ($gamesRes['msg'] ?? 'Unknown') . ")</span><br>";
+        echo "<span style='color:red;'>Failed!</span><br>";
     }
-    
-    flush(); 
+    flush();
 }
 
-echo "<hr><h3 style='color:#22c55e;'>🎉 Sync Completed Successfully! Total {$totalGames} games added/updated.</h3>";
-echo "<a href='index.php' style='color:#111; background:#eab308; padding:10px 20px; text-decoration:none; border-radius:5px; font-weight:bold; display:inline-block; margin-top:10px;'>Go to Home</a>";
+echo "<hr><h3>🎉 Success! Total {$totalSynced} games processed.</h3>";
+echo "<a href='index.php' style='color:#000; background:#eab308; padding:10px 20px; text-decoration:none; font-weight:bold; border-radius:5px;'>Back to Lobby</a>";
 echo "</div>";
 ?>
