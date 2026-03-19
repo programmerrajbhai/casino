@@ -1,7 +1,5 @@
 <?php
-// যেকোনো ইকো বা স্পেস এরর ব্লক করে রিডাইরেক্ট স্মুথ করার জন্য ob_start() ব্যবহার করা হলো
 ob_start(); 
-
 require_once 'db.php';
 require_once 'HuiduService.php';
 
@@ -16,20 +14,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['game_uid'])) {
         die("<h2 style='color:red;text-align:center;'>❌ Game not found in local database!</h2>");
     }
 
-    $gameCurrenciesString = strtoupper($game['currency']);
-    $playCurrency = 'USD'; // ডিফল্ট
+    // 🔥 ১. ডেটাবেস থেকে কারেন্সি বের করা (একাধিক থাকলে কমা দিয়ে ভাগ করে প্রথমটি নেওয়া)
+    $currencies = explode(',', $game['currency'] ?? 'BDT');
+    $playCurrency = strtoupper(trim($currencies[0]));
+    if (empty($playCurrency)) {
+        $playCurrency = 'BDT'; // ডিফল্ট
+    }
 
-    if (strpos($gameCurrenciesString, 'BDT') !== false) {
-        $playCurrency = 'BDT';
-    } elseif (strpos($gameCurrenciesString, 'USD') !== false) {
-        $playCurrency = 'USD';
-    } elseif (strpos($gameCurrenciesString, 'INR') !== false) {
-        $playCurrency = 'INR';
-    } else {
-        $exp = explode(',', $gameCurrenciesString);
-        if(isset($exp[0]) && !empty($exp[0])) {
-            $playCurrency = trim($exp[0]);
-        }
+    // 🔥 ২. ডেটাবেস থেকে ভাষা (Language) বের করা
+    $langs = explode(',', $game['lang'] ?? 'en');
+    $playLang = strtolower(trim($langs[0]));
+    if (empty($playLang)) {
+        $playLang = 'en'; // ডিফল্ট
     }
 
     $username = 'playerraj' . strtolower($playCurrency); 
@@ -50,32 +46,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['game_uid'])) {
         }
     }
 
-    // API কল শুরু
     $api = new HuiduService();
     
     // গেম লঞ্চ করার আগে প্লেয়ারকে API তে রেজিস্টার করে নেওয়া হচ্ছে
     $api->registerPlayer($username);
 
-    // গেম লঞ্চ করা হচ্ছে
-    $result = $api->launchGame($username, $gameUid, $balance, $playCurrency);
+    // 🔥 আপডেট: গেম লঞ্চিং এ ডাইনামিক কারেন্সি এবং ভাষা পাঠানো হচ্ছে
+    $result = $api->launchGame($username, $gameUid, $balance, $playCurrency, $playLang);
 
-    // যদি গেম লিংক সফলভাবে তৈরি হয়
     if ($result['status'] && !empty($result['url'])) {
         $gameUrl = $result['url'];
         
-        // ১. PHP Redirect
         header("Location: " . $gameUrl);
-        
-        // ২. JS Fallback Redirect (যদি কোনো কারণে PHP রিডাইরেক্ট কাজ না করে, এটা গ্যারান্টি দিয়ে গেমে নিয়ে যাবে)
         echo "<script>window.location.href = '{$gameUrl}';</script>";
         echo "<meta http-equiv='refresh' content='0;url={$gameUrl}'>";
         exit;
     } else {
-        // এরর হলে সুন্দর বক্সে দেখাবে
         echo "<div style='background:#111; color:#fff; padding:40px; text-align:center; font-family:sans-serif; min-height:100vh;'>";
         echo "<h2 style='color:#ef4444;'>❌ গেম চালু করা যায়নি!</h2>";
         echo "<p style='font-size:18px;'><strong>গেমের নাম:</strong> {$game['game_name']}</p>";
-        echo "<p style='font-size:18px; color:#eab308;'><strong>সিলেক্টেড কারেন্সি:</strong> {$playCurrency}</p>";
+        echo "<p style='font-size:18px; color:#eab308;'><strong>কারেন্সি:</strong> {$playCurrency} | <strong>ভাষা:</strong> {$playLang}</p>";
         
         echo "<div style='text-align:left; background:#222; padding:20px; border-radius:10px; max-width:600px; margin:20px auto; border:1px solid #444;'>";
         echo "<h4 style='margin-top:0; color:#888;'>API Error Details:</h4>";

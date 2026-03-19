@@ -1,20 +1,27 @@
 <?php
 require_once 'db.php';
 
-// ফিল্টার রিকোয়েস্ট
+// Filter Requests
 $activeProvider = $_GET['provider'] ?? '';
 $activeType = $_GET['type'] ?? '';
 
-// মেনুর জন্য প্রোভাইডার বের করা
+// Menu er jonno Providers
 $provStmt = $pdo->query("SELECT DISTINCT provider_code, provider_name FROM huidu_games WHERE provider_name != '' ORDER BY provider_name ASC");
 $providers = $provStmt->fetchAll();
 
-// মেনুর জন্য ক্যাটাগরি বের করা
-$typeStmt = $pdo->query("SELECT DISTINCT game_type FROM huidu_games WHERE game_type != '' ORDER BY game_type ASC");
+// Menu er jonno Game Types (Categories)
+$typeStmt = $pdo->query("SELECT DISTINCT game_type FROM huidu_games WHERE game_type IS NOT NULL AND game_type != '' ORDER BY game_type ASC");
 $gameTypes = $typeStmt->fetchAll();
 
-// 🔥 ম্যাজিক কুয়েরি: শুধুমাত্র সেই গেমগুলো আনবে যেগুলোর ডাটাবেসে ছবি আছে (ফাঁকা নয়)
-$sql = "SELECT * FROM huidu_games WHERE image IS NOT NULL AND image != ''";
+// 🔥 Category Wise Fallback Image Logic (Jader image nai tader jonno same category er image anar jonno)
+$imgStmt = $pdo->query("SELECT game_type, image FROM huidu_games WHERE image IS NOT NULL AND image != ''");
+$categoryImages = [];
+foreach($imgStmt->fetchAll() as $row) {
+    $categoryImages[$row['game_type']][] = $row['image'];
+}
+
+// All Games Load Query (Ekhon sob game asbe, image thak ba na thak)
+$sql = "SELECT * FROM huidu_games WHERE 1=1";
 $params = [];
 
 if ($activeProvider) {
@@ -26,7 +33,7 @@ if ($activeType) {
     $params[] = $activeType;
 }
 
-// 🔥 শাফল (Shuffle) ম্যাজিক: ORDER BY RAND() ব্যবহার করা হয়েছে যেন প্রতিবার নতুন গেম সামনে আসে
+// Randomly shuffle kore show korar jonno ORDER BY RAND()
 $sql .= " ORDER BY RAND() LIMIT 200"; 
 $gameStmt = $pdo->prepare($sql);
 $gameStmt->execute($params);
@@ -73,16 +80,16 @@ $games = $gameStmt->fetchAll();
             <div class="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none">
                 <i class="fa-solid fa-search text-gray-500 text-lg"></i>
             </div>
-            <input type="text" id="gameSearch" placeholder="গেমের নাম দিয়ে খুঁজুন..." class="w-full bg-gray-900/50 border border-gray-700 text-white rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:border-yellow-500 transition-colors shadow-inner text-lg placeholder-gray-600">
+            <input type="text" id="gameSearch" placeholder="Game er naam likhe khujun..." class="w-full bg-gray-900/50 border border-gray-700 text-white rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:border-yellow-500 transition-colors shadow-inner text-lg placeholder-gray-600">
         </div>
 
         <div class="flex items-center justify-between mb-4">
-            <h2 class="text-xl font-bold text-white flex items-center gap-2"><i class="fa-solid fa-gamepad text-yellow-500"></i> গেম ক্যাটাগরি</h2>
+            <h2 class="text-xl font-bold text-white flex items-center gap-2"><i class="fa-solid fa-gamepad text-yellow-500"></i> Game Category</h2>
         </div>
         <div class="flex gap-3 overflow-x-auto pb-4 mb-6 hide-scroll">
             <a href="index.php<?= $activeProvider ? '?provider='.$activeProvider : '' ?>" 
                class="flex-shrink-0 px-6 py-2.5 rounded-xl font-bold transition-all border <?= $activeType === '' ? 'bg-gradient-to-r from-yellow-500 to-orange-500 text-black border-transparent shadow-lg' : 'bg-gray-900 border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-white' ?>">
-                সব ক্যাটাগরি
+                All Games
             </a>
             <?php foreach($gameTypes as $cat): ?>
                 <?php 
@@ -98,12 +105,9 @@ $games = $gameStmt->fetchAll();
             <?php endforeach; ?>
         </div>
 
-        <div class="flex items-center justify-between mb-4">
-            <h2 class="text-xl font-bold text-white flex items-center gap-2"><i class="fa-solid fa-building text-blue-400"></i> প্রোভাইডার</h2>
-        </div>
         <div class="flex gap-2 overflow-x-auto pb-4 mb-8 hide-scroll border-b border-gray-800">
             <a href="index.php<?= $activeType ? '?type='.$activeType : '' ?>" class="flex-shrink-0 px-5 py-2 text-sm rounded-full font-bold transition-all <?= $activeProvider === '' ? 'bg-white text-black shadow-lg' : 'bg-gray-800 border border-gray-700 text-gray-300 hover:bg-gray-700 hover:text-white' ?>">
-                সব প্রোভাইডার
+                All Providers
             </a>
             <?php foreach($providers as $p): ?>
                 <?php 
@@ -121,9 +125,28 @@ $games = $gameStmt->fetchAll();
         <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 md:gap-6" id="gamesGrid">
             <?php if(count($games) > 0): ?>
                 <?php foreach($games as $g): 
-                    // যেহেতু আমরা আগেই ফিল্টার করে এনেছি, তাই এখন গ্যারান্টি যে ছবি থাকবেই
-                    $finalImage = trim($g['image']);
-                    if (strpos($finalImage, '//') === 0) { $finalImage = 'https:' . $finalImage; }
+                    
+                    $dbImage = trim($g['image'] ?? '');
+                    $gType = $g['game_type'] ?? 'CASINO';
+                    
+                    // 🔥 Magic Logic: Image faka thakle same category er image anbe
+                    if (empty($dbImage) && !empty($categoryImages[$gType])) {
+                        // Same category theke random image pick kora
+                        $randomIndex = array_rand($categoryImages[$gType]);
+                        $dbImage = $categoryImages[$gType][$randomIndex];
+                    }
+
+                    // Erpor o image na thakle (orthat puro category tei kono image nai) tokhon fallback
+                    if (empty($dbImage)) {
+                        $finalImage = "https://images.unsplash.com/photo-1596838132731-3301c3fd4317?q=80&w=500&auto=format&fit=crop";
+                    } else {
+                        // HTTP/HTTPS fix
+                        if (strpos($dbImage, '//') === 0) { 
+                            $finalImage = 'https:' . $dbImage; 
+                        } else {
+                            $finalImage = $dbImage;
+                        }
+                    }
 
                     $currencies = explode(',', $g['currency'] ?? 'BDT');
                     $firstCurrency = strtoupper(trim($currencies[0]));
@@ -163,7 +186,7 @@ $games = $gameStmt->fetchAll();
                         
                         <div class="flex justify-between items-center mb-2">
                             <p class="text-[11px] text-yellow-500 font-bold uppercase tracking-wide">
-                                <?= htmlspecialchars($g['game_type'] ?? 'CASINO') ?>
+                                <?= htmlspecialchars($gType) ?>
                             </p>
                         </div>
                         
@@ -180,8 +203,8 @@ $games = $gameStmt->fetchAll();
                 <?php endforeach; ?>
             <?php else: ?>
                 <div class="col-span-full py-24 text-center text-gray-500 border-2 border-dashed border-gray-800 rounded-3xl bg-gray-900/50">
-                    <i class="fa-solid fa-image text-6xl mb-4 text-gray-700"></i>
-                    <h3 class="text-2xl font-bold text-gray-400">কোনো ছবিসহ গেম পাওয়া যায়নি!</h3>
+                    <i class="fa-solid fa-box-open text-6xl mb-4 text-gray-700"></i>
+                    <h3 class="text-2xl font-bold text-gray-400">Kono game pawa jayni!</h3>
                 </div>
             <?php endif; ?>
         </div>
@@ -190,11 +213,11 @@ $games = $gameStmt->fetchAll();
     <div class="fixed bottom-0 left-0 w-full glass-panel border-t border-gray-800 flex justify-around items-center py-2 px-2 z-50 md:hidden pb-safe">
         <a href="index.php" class="flex flex-col items-center justify-center w-1/4 p-1 text-yellow-500">
             <i class="fa-solid fa-house text-xl mb-1"></i>
-            <span class="text-[10px] font-bold">হোম</span>
+            <span class="text-[10px] font-bold">Home</span>
         </a>
         <a href="#" class="flex flex-col items-center justify-center w-1/4 p-1 text-gray-500 hover:text-gray-300">
             <i class="fa-solid fa-gift text-xl mb-1"></i>
-            <span class="text-[10px]">অফার</span>
+            <span class="text-[10px]">Offers</span>
         </a>
         <a href="#" class="flex flex-col items-center justify-center w-1/4 p-1 relative -top-6">
             <div class="bg-gradient-to-r from-yellow-400 to-orange-500 w-14 h-14 rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(234,179,8,0.4)] border-4 border-[#0b0f19]">
@@ -203,7 +226,7 @@ $games = $gameStmt->fetchAll();
         </a>
         <a href="#" class="flex flex-col items-center justify-center w-1/4 p-1 text-gray-500 hover:text-gray-300">
             <i class="fa-solid fa-user text-xl mb-1"></i>
-            <span class="text-[10px]">প্রোফাইল</span>
+            <span class="text-[10px]">Profile</span>
         </a>
     </div>
 

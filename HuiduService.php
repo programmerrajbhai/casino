@@ -19,16 +19,27 @@ class HuiduService {
         $ch = curl_init();
 
         if ($isPost) {
-            $timestamp = (string)(time() * 1000);
+            $timestamp = (string) round(microtime(true) * 1000);
             
-            // 🔥 FIX: Huidu API রিকোয়ারমেন্ট অনুযায়ী এনক্রিপ্ট করার আগে পেলোডের ভেতরে agency_uid ঢোকাতে হবে
+            // পেলোডের ভেতরে ডেটা সেট করা
             $data['agency_uid'] = API_AGENCY_UID;
+            $data['host_id'] = API_AGENCY_UID; 
+            $data['OperatorId'] = API_AGENCY_UID;
             $data['timestamp'] = $timestamp;
+
+            // ডেটা এনক্রিপ্ট করা হলো
+            $encryptedData = $this->encryptPayload($data);
 
             $postFields = [
                 'agency_uid' => API_AGENCY_UID,
-                'timestamp' => $timestamp,
-                'payload' => $this->encryptPayload($data)
+                'host_id'    => API_AGENCY_UID, 
+                'OperatorId' => API_AGENCY_UID,
+                'timestamp'  => $timestamp,
+                // 🔥 NEW FIX: সার্ভার যেন কনফিউজড না হয়, তাই payload এবং signature দুই নামেই এনক্রিপ্টেড ডেটা পাঠানো হচ্ছে
+                'payload'    => $encryptedData,
+                'signature'  => $encryptedData,
+                // বাড়তি সিকিউরিটির জন্য MD5 সিগনেচারও ব্যাকআপ হিসেবে পাঠানো হলো
+                'sign'       => md5(API_AGENCY_UID . $timestamp . API_AES_KEY)
             ];
 
             $jsonPayload = json_encode($postFields);
@@ -37,11 +48,13 @@ class HuiduService {
             curl_setopt($ch, CURLOPT_POST, true);
             curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPayload);
             curl_setopt($ch, CURLOPT_HTTPHEADER, [
-                'Content-Type: application/json',
-                'Content-Length: ' . strlen($jsonPayload)
+                'Content-Type: application/json; charset=utf-8',
+                'Accept: application/json'
             ]);
         } else {
             $data['agency_uid'] = API_AGENCY_UID;
+            $data['host_id'] = API_AGENCY_UID;
+            $data['OperatorId'] = API_AGENCY_UID;
             curl_setopt($ch, CURLOPT_URL, $url . '?' . http_build_query($data));
         }
 
@@ -72,7 +85,6 @@ class HuiduService {
 
         $response = $this->sendRequest('/player/create', $payload, true);
 
-        // Code 0 বা 8011 (আগে থেকেই আছে) দুটোই সাকসেস
         if (isset($response['code']) && ($response['code'] === 0 || $response['code'] === 8011)) {
             return true;
         }
@@ -80,7 +92,7 @@ class HuiduService {
         return false;
     }
 
-    public function launchGame($username, $gameUid, $amount, $currency = 'USD') {
+    public function launchGame($username, $gameUid, $amount, $currency = 'USD', $language = 'en') {
         $username = str_starts_with($username, API_PLAYER_PREFIX) ? $username : API_PLAYER_PREFIX . $username;
 
         $payload = [
@@ -88,7 +100,7 @@ class HuiduService {
             'game_uid' => $gameUid,
             'credit_amount' => (string)$amount,
             'currency_code' => $currency,
-            'language' => API_LANG,
+            'language' => $language,
             'home_url' => BASE_URL . '/index.php',
             'platform' => 2, 
             'callback_url' => BASE_URL . '/callback.php'
